@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "General settings and store branch contact details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "headline": { "type": "string" },
+        "sub": { "type": "string" },
+        "area": { "type": "string" },
+        "phone": { "type": "string" },
+        "facebook": { "type": "string" },
+        "tiktok": { "type": "string" },
+        "address": { "type": "string" },
+        "maps": { "type": "string" },
+        "logo": { "type": "string" }
+      },
+      "required": ["name", "phone"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store outfit product item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "sizes": { "type": "string" },
+        "soldOut": { "type": "boolean" },
+        "image": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "/store_config/settings": {
+      "schema": "StoreSettings",
+      "description": "Stores general store settings and branch contact info"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Individual product documents in products collection"
+    }
+  }
+}

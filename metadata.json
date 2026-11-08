@@ -1,0 +1,6 @@
+{
+  "name": "Skip - ستور ملابس شبابي بالعجمي",
+  "description": "أطقم كاملة، من التيشيرت للكوتشي في فرع Skip بالعجمي، الهانوفيل - الإسكندرية. تواصل مباشر عبر واتساب وعرض لكافة الموديلات والأسعار وتحديثات المعروضات.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

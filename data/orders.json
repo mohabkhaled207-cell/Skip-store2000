@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ord_1794059989714_qg7l",
+    "customerName": "محمد علي",
+    "customerPhone": "01098765432",
+    "customerAddress": "الإسكندرية - العجمي",
+    "items": [
+      {
+        "id": "item_1",
+        "name": "طقم كاجوال كامل",
+        "price": 850,
+        "clothesSize": "XL",
+        "pantsSize": "34",
+        "shoeSize": "43"
+      }
+    ],
+    "totalPrice": 850,
+    "notes": "",
+    "status": "new",
+    "createdAt": 1794059989714
+  }
+]

@@ -79,8 +79,7 @@ async function startServer() {
   }
 
   const quotaFile = path.resolve(dataDir, 'quota.json');
-  // Default to true since free tier write quota for this project is exhausted today
-  let serverQuotaExceeded = true;
+  let serverQuotaExceeded = false;
 
   const markServerQuotaExceeded = () => {
     serverQuotaExceeded = true;
@@ -104,15 +103,19 @@ async function startServer() {
           if (age < resetWindow) {
             serverQuotaExceeded = true;
             return true;
+          } else {
+            // Quota window elapsed, reset lock
+            serverQuotaExceeded = false;
+            try {
+              fs.unlinkSync(quotaFile);
+            } catch {}
+            return false;
           }
         }
-      } else {
-        // Automatically re-create quota file if deleted so protection persists
-        markServerQuotaExceeded();
-        return true;
       }
     } catch {}
-    return serverQuotaExceeded;
+    serverQuotaExceeded = false;
+    return false;
   };
 
   checkQuotaStatus();

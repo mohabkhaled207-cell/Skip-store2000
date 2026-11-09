@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, type User } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -8,6 +9,11 @@ import {
   onSnapshot,
   getDocFromServer,
   writeBatch,
+  setDoc,
+  deleteDoc,
+  updateDoc,
+  query,
+  orderBy,
   disableNetwork,
   setLogLevel,
 } from 'firebase/firestore';
@@ -40,6 +46,23 @@ if (typeof window !== 'undefined') {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(app);
+export const ADMIN_EMAIL = 'skipstore27@gmail.com';
+export function observeAuth(callback: (user: User | null) => void) {
+  return onAuthStateChanged(auth, callback);
+}
+export async function loginAdmin(email: string, password: string): Promise<User> {
+  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  if ((credential.user.email || '').toLowerCase() !== ADMIN_EMAIL) {
+    await signOut(auth);
+    throw new Error('هذا الحساب غير مصرح له بإدارة المتجر');
+  }
+  return credential.user;
+}
+export async function logoutAdmin(): Promise<void> {
+  await signOut(auth);
+}
+
 
 export function getFirestoreConsoleUrl(): string {
   return `https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/databases/${firebaseConfig.firestoreDatabaseId}/data?openUpgradeDialog=true`;
@@ -55,8 +78,7 @@ export enum OperationType {
 }
 
 const QUOTA_STORAGE_KEY = 'skip_firestore_quota_until';
-// Default to true because the free daily write quota for this project is exhausted for today
-let quotaExceededState = true;
+let quotaExceededState = false;
 
 // Safe promise timeout wrapper that never rejects or hangs
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -88,11 +110,12 @@ export function isFirestoreQuotaExceeded(): boolean {
           return true;
         } else {
           localStorage.removeItem(QUOTA_STORAGE_KEY);
+          quotaExceededState = false;
         }
       }
     } catch {}
   }
-  return true; // Conservative default: protect against quota exceeded errors
+  return false;
 }
 
 export function markQuotaExceeded(): void {
@@ -108,7 +131,7 @@ export function markQuotaExceeded(): void {
   } catch {}
 }
 
-// Initial check on load - safely disable network write streams
+// Initial check on load - safely disable network write streams only if actually locked
 if (isFirestoreQuotaExceeded()) {
   try {
     disableNetwork(db).catch(() => {});
@@ -156,10 +179,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 export async function testConnection() {
   if (isFirestoreQuotaExceeded()) return;
   try {
-    await withTimeout(getDocFromServer(doc(db, 'store_config', 'settings')), 1000, null);
+    await withTimeout(getDocFromServer(doc(db, 'test', 'connection')), 1500, null);
   } catch (error) {
-    if (isQuotaExceededError(error)) {
-      // quota marked
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn("Please check your Firebase configuration.");
+    } else if (isQuotaExceededError(error)) {
+      markQuotaExceeded();
     }
   }
 }
@@ -290,7 +315,7 @@ export async function saveStoreStateToFirestore(state: StoreState): Promise<bool
     }
   })();
 
-  return withTimeout(savePromise, 1500, false);
+  return savePromise;
 }
 
 // Real-time listener across settings and products collection
@@ -368,4 +393,37 @@ export function subscribeToStoreState(
     }
     return () => {};
   }
+}
+
+
+// Orders and activity are stored in Firestore as well, with live listeners.
+export async function recordActivity(item: import('./store').ActivityItem): Promise<void> {
+  await setDoc(doc(db, 'activity', item.id), item);
+}
+
+export function subscribeToActivity(callback: (items: import('./store').ActivityItem[]) => void) {
+  return onSnapshot(query(collection(db, 'activity'), orderBy('timestamp', 'desc')), (snap) => {
+    callback(snap.docs.map((d) => d.data() as import('./store').ActivityItem));
+  }, (error) => handleFirestoreError(error, OperationType.LIST, 'activity'));
+}
+
+export async function saveOrderToFirestore(order: import('./store').CustomerOrder): Promise<void> {
+  await setDoc(doc(db, 'orders', order.id), order);
+}
+
+export function subscribeToOrders(callback: (items: import('./store').CustomerOrder[]) => void) {
+  return onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snap) => {
+    callback(snap.docs.map((d) => d.data() as import('./store').CustomerOrder));
+  }, (error) => handleFirestoreError(error, OperationType.LIST, 'orders'));
+}
+
+export async function updateOrderStatusInFirestore(orderId: string, status: import('./store').CustomerOrder['status']): Promise<void> {
+  const orderRef = doc(db, 'orders', orderId);
+  const snap = await getDoc(orderRef);
+  if (!snap.exists()) throw new Error('الطلب غير موجود');
+  await updateDoc(orderRef, { status });
+}
+
+export async function deleteOrderFromFirestore(orderId: string): Promise<void> {
+  await deleteDoc(doc(db, 'orders', orderId));
 }

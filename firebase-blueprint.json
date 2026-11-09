@@ -43,6 +43,10 @@
     "/products/{productId}": {
       "schema": "Product",
       "description": "Individual product documents in products collection"
+    },
+    "/test/{testId}": {
+      "schema": "StoreSettings",
+      "description": "Test connection ping document"
     }
   }
 }

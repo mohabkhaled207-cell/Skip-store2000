@@ -1,6 +1,0 @@
-{
-  "quotaExceeded": true,
-  "timestamp": 1730765400000,
-  "resetAfter": 86400000,
-  "reason": "Free daily write units per project (free tier database) limit exceeded"
-}

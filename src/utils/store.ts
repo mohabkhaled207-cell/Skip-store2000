@@ -271,4 +271,51 @@ export async function checkAdminPassword(password: string): Promise<boolean> {
   return verifyAdminPassword(password);
 }
 
+export interface CartItem {
+  id: string;
+  productId: string;
+  name: string;
+  category: string;
+  price: number | null;
+  image: string;
+  clothesSize?: string;
+  pantsSize?: string;
+  shoeSize?: string;
+  notes?: string;
+  quantity: number;
+  addedAt: number;
+}
+
+export interface CustomerOrder {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress?: string;
+  items: CartItem[];
+  totalPrice: number;
+  notes?: string;
+  status: 'new' | 'confirmed' | 'shipped' | 'completed' | 'cancelled';
+  createdAt: number;
+}
+
+export interface ActivityItem {
+  id: string;
+  type: 'cart_add' | 'cart_remove' | 'order_submit' | 'product_add' | 'product_edit' | 'product_delete' | 'settings_update';
+  title: string;
+  details: string;
+  actor: string;
+  timestamp: number;
+}
+
+export function formatArabicTime(timestamp: number): string {
+  try {
+    const d = new Date(timestamp);
+    const timeStr = d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const dateStr = d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' });
+    return `${timeStr} (${dateStr})`;
+  } catch {
+    return new Date(timestamp).toLocaleTimeString();
+  }
+}
+
 

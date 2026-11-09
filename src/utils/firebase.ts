@@ -347,7 +347,7 @@ export async function saveStoreStateToFirestore(
     }
     if (error instanceof Error && error.message === 'STORE_STATE_CONFLICT') {
       console.warn('Firestore save rejected: a newer store version already exists.');
-      return false;
+      throw error;
     }
     handleFirestoreError(error, OperationType.WRITE, 'store_config/settings + products');
     return false;

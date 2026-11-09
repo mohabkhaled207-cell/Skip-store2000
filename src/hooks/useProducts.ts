@@ -17,9 +17,7 @@ export function useProducts() {
     return unsubscribe;
   }, []);
 
-  const persistProducts = async (nextProducts: Product[]) => {
-    const current = await getStoreStateFromFirestore();
-    if (!current) throw new Error("تعذر تحميل بيانات المتجر من Firestore.");
+  const persistProducts = async (current: StoreState, nextProducts: Product[]) => {
     const nextState: StoreState = {
       ...current,
       updatedAt: Date.now(),
@@ -42,7 +40,7 @@ export function useProducts() {
       soldOut: !!p.soldOut,
       image: p.image || "",
     };
-    await persistProducts([newProduct, ...current.products]);
+    await persistProducts(current, [newProduct, ...current.products]);
   };
 
   const updateProduct = async (id: string, changes: Partial<Product>) => {
@@ -51,14 +49,14 @@ export function useProducts() {
     const updated = current.products.map((product) =>
       product.id === id ? { ...product, ...changes } : product
     );
-    await persistProducts(updated);
+    await persistProducts(current, updated);
   };
 
   const deleteProduct = async (id: string) => {
     if (!confirm("متأكد من الحذف؟")) return;
     const current = await getStoreStateFromFirestore();
     if (!current) throw new Error("تعذر تحميل بيانات المتجر من Firestore.");
-    const deleted = await deleteProductFromFirestore(id, Date.now());
+    const deleted = await deleteProductFromFirestore(id, current.updatedAt || 0);
     if (!deleted) throw new Error("فشل حذف المنتج من Firestore.");
     setProducts(current.products.filter((product) => product.id !== id));
   };

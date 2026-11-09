@@ -304,10 +304,12 @@ export async function saveStoreStateToFirestore(
       const productsQuery = collection(db, 'products');
 
       // Read the complete current version before scheduling any writes.
-      const [settingsSnap, legacySnap, existingSnap] = await Promise.all([
+      // The Web SDK transaction API reads document references, not collection queries.
+      // Read products first; the settings revision below serializes every store mutation.
+      const existingSnap = await getDocs(productsQuery);
+      const [settingsSnap, legacySnap] = await Promise.all([
         transaction.get(settingsRef),
         transaction.get(legacyRef),
-        transaction.get(productsQuery),
       ]);
 
       const currentUpdatedAt = settingsSnap.exists()

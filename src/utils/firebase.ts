@@ -249,33 +249,45 @@ export async function getStoreStateFromFirestore(): Promise<StoreState | null> {
 }
 
 // Delete a single product directly and atomically from Firestore with 1500ms timeout
-export async function deleteProductFromFirestore(productId: string, newUpdatedAt: number): Promise<boolean> {
+export async function deleteProductFromFirestore(
+  productId: string,
+  expectedUpdatedAt: number
+): Promise<boolean> {
   if (isFirestoreQuotaExceeded()) return false;
 
-  const deletePromise = (async (): Promise<boolean> => {
-    try {
-      const batch = writeBatch(db);
-      const prodRef = doc(db, 'products', productId);
-      batch.delete(prodRef);
-
+  try {
+    await runTransaction(db, async (transaction) => {
       const settingsRef = doc(db, 'store_config', 'settings');
-      batch.set(settingsRef, { updatedAt: newUpdatedAt }, { merge: true });
+      const productRef = doc(db, 'products', productId);
+      const [settingsSnap, productSnap] = await Promise.all([
+        transaction.get(settingsRef),
+        transaction.get(productRef),
+      ]);
 
-      const legacyRef = doc(db, 'store_config', 'latest');
-      batch.delete(legacyRef);
+      const currentUpdatedAt = settingsSnap.exists()
+        ? Number(settingsSnap.data().updatedAt || 0)
+        : 0;
 
-      await batch.commit();
-      return true;
-    } catch (error) {
-      if (isQuotaExceededError(error)) {
-        return false;
+      if (currentUpdatedAt !== expectedUpdatedAt) {
+        throw new Error('STORE_STATE_CONFLICT');
       }
-      handleFirestoreError(error, OperationType.DELETE, `products/${productId}`);
+
+      if (productSnap.exists()) transaction.delete(productRef);
+      transaction.set(settingsRef, { updatedAt: Date.now() }, { merge: true });
+      transaction.delete(doc(db, 'store_config', 'latest'));
+    });
+    return true;
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      markQuotaExceeded();
       return false;
     }
-  })();
-
-  return deletePromise;
+    if (error instanceof Error && error.message === 'STORE_STATE_CONFLICT') {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.DELETE, `products/${productId}`);
+    return false;
+  }
 }
 
 // Save complete store state safely into individual documents with strict safety timeout

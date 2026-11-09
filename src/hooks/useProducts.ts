@@ -25,7 +25,7 @@ export function useProducts() {
       updatedAt: Date.now(),
       products: nextProducts,
     };
-    const saved = await saveStoreStateToFirestore(nextState);
+    const saved = await saveStoreStateToFirestore(nextState, current.updatedAt || 0);
     if (!saved) throw new Error("فشل حفظ المنتجات على Firestore.");
     setProducts(nextProducts);
   };

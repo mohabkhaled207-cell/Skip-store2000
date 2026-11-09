@@ -9,6 +9,7 @@ import {
   onSnapshot,
   getDocFromServer,
   writeBatch,
+  runTransaction,
   setDoc,
   deleteDoc,
   updateDoc,
@@ -278,57 +279,79 @@ export async function deleteProductFromFirestore(productId: string, newUpdatedAt
 }
 
 // Save complete store state safely into individual documents with strict safety timeout
-export async function saveStoreStateToFirestore(state: StoreState): Promise<boolean> {
+export async function saveStoreStateToFirestore(
+  state: StoreState,
+  expectedUpdatedAt: number = 0
+): Promise<boolean> {
   if (isFirestoreQuotaExceeded()) return false;
 
-  const savePromise = (async (): Promise<boolean> => {
-    try {
-      const batch = writeBatch(db);
-      const now = state.updatedAt || Date.now();
-
-      // 1. Save settings
+  try {
+    await runTransaction(db, async (transaction) => {
       const settingsRef = doc(db, 'store_config', 'settings');
-      batch.set(settingsRef, {
+      const legacyRef = doc(db, 'store_config', 'latest');
+      const productsQuery = collection(db, 'products');
+
+      // Read the complete current version before scheduling any writes.
+      const [settingsSnap, legacySnap, existingSnap] = await Promise.all([
+        transaction.get(settingsRef),
+        transaction.get(legacyRef),
+        transaction.get(productsQuery),
+      ]);
+
+      const currentUpdatedAt = settingsSnap.exists()
+        ? Number(settingsSnap.data().updatedAt || 0)
+        : legacySnap.exists()
+          ? Number((legacySnap.data() as StoreState).updatedAt || 0)
+          : 0;
+
+      // Reject stale clients instead of allowing them to restore deleted products
+      // or overwrite newer store settings.
+      if (currentUpdatedAt !== expectedUpdatedAt) {
+        throw new Error('STORE_STATE_CONFLICT');
+      }
+
+      const now = state.updatedAt || Date.now();
+      const existingById = new Map(existingSnap.docs.map((item) => [item.id, item]));
+      const nextProductIds = new Set(state.products.map((product) => product.id));
+
+      transaction.set(settingsRef, {
         settings: state.settings,
         updatedAt: now,
         v: state.v || 1,
       });
 
-      // 2. Fetch existing products to delete removed ones explicitly
-      const existingSnap = await getDocs(collection(db, 'products'));
-      const currentProductIds = new Set(state.products.map((p) => p.id));
-
-      if (existingSnap) {
-        existingSnap.forEach((dSnap) => {
-          if (!currentProductIds.has(dSnap.id)) {
-            batch.delete(dSnap.ref);
-          }
-        });
+      for (const existing of existingSnap.docs) {
+        if (!nextProductIds.has(existing.id)) {
+          transaction.delete(existing.ref);
+        }
       }
 
-      // 3. Save each product as an individual document
-      for (const p of state.products) {
-        const pRef = doc(db, 'products', p.id);
-        batch.set(pRef, p);
+      for (const product of state.products) {
+        const existing = existingById.get(product.id);
+        const previousData = existing?.data();
+        if (!previousData || JSON.stringify(previousData) !== JSON.stringify(product)) {
+          transaction.set(doc(db, 'products', product.id), product);
+        }
       }
 
-      // 4. Delete legacy store_config/latest document to prevent stale restores
-      const legacyRef = doc(db, 'store_config', 'latest');
-      batch.delete(legacyRef);
-
-      await batch.commit();
-      return true;
-    } catch (error) {
-      if (isQuotaExceededError(error)) {
-        markQuotaExceeded();
-        return false;
+      if (legacySnap.exists()) {
+        transaction.delete(legacyRef);
       }
-      console.warn('saveStoreStateToFirestore warning:', error);
+    });
+
+    return true;
+  } catch (error) {
+    if (isQuotaExceededError(error)) {
+      markQuotaExceeded();
       return false;
     }
-  })();
-
-  return savePromise;
+    if (error instanceof Error && error.message === 'STORE_STATE_CONFLICT') {
+      console.warn('Firestore save rejected: a newer store version already exists.');
+      return false;
+    }
+    handleFirestoreError(error, OperationType.WRITE, 'store_config/settings + products');
+    return false;
+  }
 }
 
 // Real-time listener across settings and products collection

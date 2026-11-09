@@ -256,34 +256,25 @@ export async function deleteProductFromFirestore(
   if (isFirestoreQuotaExceeded()) return false;
 
   try {
-    await runTransaction(db, async (transaction) => {
-      const settingsRef = doc(db, 'store_config', 'settings');
-      const productRef = doc(db, 'products', productId);
-      const [settingsSnap, productSnap] = await Promise.all([
-        transaction.get(settingsRef),
-        transaction.get(productRef),
-      ]);
+    const current = await getStoreStateFromFirestore();
+    if (!current) return false;
+    if ((current.updatedAt || 0) !== expectedUpdatedAt) {
+      throw new Error('STORE_STATE_CONFLICT');
+    }
 
-      const currentUpdatedAt = settingsSnap.exists()
-        ? Number(settingsSnap.data().updatedAt || 0)
-        : 0;
-
-      if (currentUpdatedAt !== expectedUpdatedAt) {
-        throw new Error('STORE_STATE_CONFLICT');
-      }
-
-      if (productSnap.exists()) transaction.delete(productRef);
-      transaction.set(settingsRef, { updatedAt: Date.now() }, { merge: true });
-      transaction.delete(doc(db, 'store_config', 'latest'));
-    });
-    return true;
+    const nextState: StoreState = {
+      ...current,
+      updatedAt: Date.now(),
+      products: current.products.filter((product) => product.id !== productId),
+    };
+    return await saveStoreStateToFirestore(nextState, expectedUpdatedAt);
   } catch (error) {
+    if (error instanceof Error && error.message === 'STORE_STATE_CONFLICT') {
+      throw error;
+    }
     if (isQuotaExceededError(error)) {
       markQuotaExceeded();
       return false;
-    }
-    if (error instanceof Error && error.message === 'STORE_STATE_CONFLICT') {
-      throw error;
     }
     handleFirestoreError(error, OperationType.DELETE, `products/${productId}`);
     return false;

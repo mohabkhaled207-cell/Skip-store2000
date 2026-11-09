@@ -276,6 +276,26 @@ export async function deleteProductFromFirestore(
   }
 }
 
+// Recursively strips any 'undefined' property values so Firestore setDoc/updateDoc/transaction never fails on 'Unsupported field value: undefined'
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleaned as unknown as T;
+  }
+  return data;
+}
+
 // Save complete store state safely into individual documents with strict safety timeout
 export async function saveStoreStateToFirestore(
   state: StoreState,
@@ -314,11 +334,11 @@ export async function saveStoreStateToFirestore(
       const existingById = new Map(existingSnap.docs.map((item) => [item.id, item]));
       const nextProductIds = new Set(state.products.map((product) => product.id));
 
-      transaction.set(settingsRef, {
+      transaction.set(settingsRef, sanitizeForFirestore({
         settings: state.settings,
         updatedAt: now,
         v: state.v || 1,
-      });
+      }));
 
       for (const existing of existingSnap.docs) {
         if (!nextProductIds.has(existing.id)) {
@@ -329,8 +349,9 @@ export async function saveStoreStateToFirestore(
       for (const product of state.products) {
         const existing = existingById.get(product.id);
         const previousData = existing?.data();
-        if (!previousData || JSON.stringify(previousData) !== JSON.stringify(product)) {
-          transaction.set(doc(db, 'products', product.id), product);
+        const cleanProd = sanitizeForFirestore(product);
+        if (!previousData || JSON.stringify(previousData) !== JSON.stringify(cleanProd)) {
+          transaction.set(doc(db, 'products', product.id), cleanProd);
         }
       }
 
@@ -440,7 +461,7 @@ export function subscribeToStoreState(
 
 // Orders and activity are stored in Firestore as well, with live listeners.
 export async function recordActivity(item: import('./store').ActivityItem): Promise<void> {
-  await setDoc(doc(db, 'activity', item.id), item);
+  await setDoc(doc(db, 'activity', item.id), sanitizeForFirestore(item));
 }
 
 export function subscribeToActivity(callback: (items: import('./store').ActivityItem[]) => void) {
@@ -450,7 +471,7 @@ export function subscribeToActivity(callback: (items: import('./store').Activity
 }
 
 export async function saveOrderToFirestore(order: import('./store').CustomerOrder): Promise<void> {
-  await setDoc(doc(db, 'orders', order.id), order);
+  await setDoc(doc(db, 'orders', order.id), sanitizeForFirestore(order));
 }
 
 export function subscribeToOrders(callback: (items: import('./store').CustomerOrder[]) => void) {

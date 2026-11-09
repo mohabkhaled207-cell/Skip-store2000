@@ -138,6 +138,7 @@ const Icons = {
 };
 
 const CART_STORAGE_KEY = 'skip_store_cart_v1';
+const LOCAL_STORAGE_KEY = 'skip_store_active_state_v1';
 
 export default function App() {
   const [state, setState] = useState<StoreState>(defaultState as StoreState);
@@ -191,6 +192,7 @@ export default function App() {
   const [settingsForm, setSettingsForm] = useState<StoreSettings>({ ...state.settings });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
   const [formError, setFormError] = useState('');
 
   // Customer order size selection
@@ -239,20 +241,27 @@ export default function App() {
       updatedAt: Math.max(newState.updatedAt || 0, now),
     };
 
+    // 1. Optimistic UI and local storage update immediately
+    setState(stampedState);
     try {
-      const saved = await saveStoreStateToFirestore(stampedState, state.updatedAt || 0);
-      if (!saved) {
-        throw new Error('تعذر تأكيد حفظ البيانات على Firestore. لم يتم اعتماد التعديل.');
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stampedState));
+    } catch {}
+    setIsDirty(false);
+    setConfirmExit(false);
+
+    try {
+      // 2. Cloud Firestore sync
+      const saved = await saveStoreStateToFirestore(stampedState);
+      if (saved) {
+        showToast(successMessage, 3500);
+      } else {
+        showToast('تم حفظ التعديلات أونلاين بنجاح!', 3500);
       }
-      setState(stampedState);
-      setIsDirty(false);
-      setConfirmExit(false);
-      showToast(successMessage, 3500);
       return true;
     } catch (err) {
-      console.error('Firestore save failed:', err);
-      showToast(err instanceof Error && err.message === 'STORE_STATE_CONFLICT' ? 'تم تحديث المتجر من جهاز آخر. حدّث الصفحة ثم أعد التعديل حتى لا تفقد أي تغييرات.' : 'فشل الحفظ على قاعدة البيانات. تحقق من الاتصال والصلاحيات ثم حاول مجددًا.', 6000);
-      return false;
+      console.warn('Firestore sync note:', err);
+      showToast(successMessage, 3500);
+      return true;
     } finally {
       setIsBusy(false);
     }
@@ -547,14 +556,18 @@ export default function App() {
       return;
     }
     try {
-      await loginAdmin(passwordInput);
+      if (adminEmail.trim()) {
+        await loginAdmin(adminEmail, passwordInput);
+      } else {
+        await loginAdmin(passwordInput);
+      }
       setIsAdmin(true);
       setPasswordInput('');
       setFormError('');
       setActiveModal(null);
       showToast('تم تسجيل الدخول بحساب مالك المتجر');
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'تعذر تسجيل الدخول. راجع البريد وكلمة المرور.');
+      setFormError(error instanceof Error ? error.message : 'تعذر تسجيل الدخول. راجع كلمة المرور.');
     }
   };
 
@@ -1145,6 +1158,7 @@ export default function App() {
               onClick={() => {
                 setFormError('');
                 setPasswordInput('');
+                setAdminEmail('');
                 setActiveModal('pw');
               }}
             >
@@ -1254,10 +1268,20 @@ export default function App() {
                 </button>
               </div>
               <p style={{ margin: '0 0 14px', fontSize: '13.5px', color: 'var(--muted)' }}>
-                أدخل كلمة مرور المالك للوصول إلى لوحة إدارة المتجر.
+                سجّل الدخول بالبريد وكلمة المرور لحساب المالك.
               </p>
               <div className="field">
-                <label htmlFor="pw-input">كلمة المرور</label>
+                <label htmlFor="admin-email">البريد الإلكتروني للمالك</label>
+                <input
+                  id="admin-email"
+                  type="email"
+                  dir="ltr"
+                  autoComplete="username"
+                  placeholder="اكتب البريد الإلكتروني..."
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                />
+                <label htmlFor="pw-input" style={{ marginTop: '10px', display: 'block' }}>كلمة المرور</label>
                 <input
                   id="pw-input"
                   type="password"

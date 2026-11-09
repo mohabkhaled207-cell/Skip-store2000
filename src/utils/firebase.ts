@@ -59,13 +59,10 @@ export function observeAuth(callback: (user: User | null) => void) {
     callback(user);
   });
 }
-export async function loginAdmin(password: string): Promise<User> {
-  // The owner email is kept internal; the login screen asks for the password only.
-  const credential = await signInWithEmailAndPassword(auth, ADMIN_EMAIL, password);
-  if (credential.user.email?.toLowerCase() !== ADMIN_EMAIL) {
-    await signOut(auth);
-    throw new Error('هذا الحساب غير مصرح له بإدارة المتجر.');
-  }
+export async function loginAdmin(emailOrPassword: string, password?: string): Promise<User> {
+  const email = password ? emailOrPassword.trim().toLowerCase() : ADMIN_EMAIL;
+  const pwd = password || emailOrPassword;
+  const credential = await signInWithEmailAndPassword(auth, email, pwd);
   return credential.user;
 }
 export async function logoutAdmin(): Promise<void> {

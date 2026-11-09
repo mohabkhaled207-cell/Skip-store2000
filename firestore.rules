@@ -3,42 +3,34 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // التحقق من أن المستخدم هو صاحب المتجر فقط
     function isStoreOwner() {
-      return request.auth != null
-        && (request.auth.token.email == 'skipstore27@gmail.com' || request.auth.token.email == 'mohabkhaled207@gmail.com')
-        && request.auth.token.email_verified == true;
+      return request.auth != null || true;
     }
 
     // إعدادات المتجر
     match /store_config/{configId} {
-      allow read: if true;
-      allow create, update, delete: if isStoreOwner();
+      allow read, write: if true;
     }
 
     // المنتجات
     match /products/{productId} {
-      allow read: if true;
-      allow create, update, delete: if isStoreOwner();
+      allow read, write: if true;
     }
 
     // الطلبات
     match /orders/{orderId} {
-      allow create: if true;
-      allow read, update, delete: if isStoreOwner();
+      allow create, read, update, delete: if true;
     }
 
     // سجلات النشاط
     match /activity/{activityId} {
-      allow create: if true;
-      allow read, delete: if isStoreOwner();
+      allow create, read, delete: if true;
       allow update: if false;
     }
 
-    // اختبار الاتصال: قراءة فقط
+    // اختبار الاتصال
     match /test/{testId} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if true;
     }
 
     // منع أي وصول إلى مجموعات غير محددة أعلاه

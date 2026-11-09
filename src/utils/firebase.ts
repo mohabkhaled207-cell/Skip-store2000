@@ -59,11 +59,9 @@ export function observeAuth(callback: (user: User | null) => void) {
     callback(user);
   });
 }
-export async function loginAdmin(email: string, password: string): Promise<User> {
-  if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
-    throw new Error('هذا الحساب غير مصرح له بإدارة المتجر.');
-  }
-  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+export async function loginAdmin(password: string): Promise<User> {
+  // The owner email is kept internal; the login screen asks for the password only.
+  const credential = await signInWithEmailAndPassword(auth, ADMIN_EMAIL, password);
   if (credential.user.email?.toLowerCase() !== ADMIN_EMAIL) {
     await signOut(auth);
     throw new Error('هذا الحساب غير مصرح له بإدارة المتجر.');

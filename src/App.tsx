@@ -191,7 +191,6 @@ export default function App() {
   const [settingsForm, setSettingsForm] = useState<StoreSettings>({ ...state.settings });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
   const [formError, setFormError] = useState('');
 
   // Customer order size selection
@@ -543,12 +542,12 @@ export default function App() {
 
   // Admin Actions
   const handleAdminLogin = async () => {
-    if (!adminEmail.trim() || !passwordInput) {
-      setFormError('اكتب البريد الإلكتروني وكلمة المرور');
+    if (!passwordInput) {
+      setFormError('اكتب كلمة المرور');
       return;
     }
     try {
-      await loginAdmin(adminEmail, passwordInput);
+      await loginAdmin(passwordInput);
       setIsAdmin(true);
       setPasswordInput('');
       setFormError('');
@@ -1146,7 +1145,6 @@ export default function App() {
               onClick={() => {
                 setFormError('');
                 setPasswordInput('');
-                setAdminEmail('');
                 setActiveModal('pw');
               }}
             >
@@ -1256,20 +1254,10 @@ export default function App() {
                 </button>
               </div>
               <p style={{ margin: '0 0 14px', fontSize: '13.5px', color: 'var(--muted)' }}>
-                سجّل الدخول بالبريد وكلمة المرور لحساب المالك.
+                أدخل كلمة مرور المالك للوصول إلى لوحة إدارة المتجر.
               </p>
               <div className="field">
-                <label htmlFor="admin-email">البريد الإلكتروني للمالك</label>
-                <input
-                  id="admin-email"
-                  type="email"
-                  dir="ltr"
-                  autoComplete="username"
-                  placeholder="اكتب البريد الإلكتروني..."
-                  value={adminEmail}
-                  onChange={(e) => setAdminEmail(e.target.value)}
-                />
-                <label htmlFor="pw-input" style={{ marginTop: '10px', display: 'block' }}>كلمة المرور</label>
+                <label htmlFor="pw-input">كلمة المرور</label>
                 <input
                   id="pw-input"
                   type="password"

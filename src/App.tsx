@@ -241,7 +241,7 @@ export default function App() {
     };
 
     try {
-      const saved = await saveStoreStateToFirestore(stampedState);
+      const saved = await saveStoreStateToFirestore(stampedState, state.updatedAt || 0);
       if (!saved) {
         throw new Error('تعذر تأكيد حفظ البيانات على Firestore. لم يتم اعتماد التعديل.');
       }
@@ -252,7 +252,7 @@ export default function App() {
       return true;
     } catch (err) {
       console.error('Firestore save failed:', err);
-      showToast('فشل الحفظ على قاعدة البيانات. تحقق من الاتصال والصلاحيات ثم حاول مجددًا.', 5000);
+      showToast(err instanceof Error && err.message === 'STORE_STATE_CONFLICT' ? 'تم تحديث المتجر من جهاز آخر. حدّث الصفحة ثم أعد التعديل حتى لا تفقد أي تغييرات.' : 'فشل الحفظ على قاعدة البيانات. تحقق من الاتصال والصلاحيات ثم حاول مجددًا.', 6000);
       return false;
     } finally {
       setIsBusy(false);

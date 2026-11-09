@@ -137,7 +137,6 @@ const Icons = {
   ),
 };
 
-const LOCAL_STORAGE_KEY = 'skip_store_active_state_v1';
 const CART_STORAGE_KEY = 'skip_store_cart_v1';
 
 export default function App() {
@@ -149,7 +148,8 @@ export default function App() {
   const [isBusy, setIsBusy] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
+  const [isStoreLoaded, setIsStoreLoaded] = useState(false);
 
   // Active Modals
   const [activeModal, setActiveModal] = useState<
@@ -191,7 +191,7 @@ export default function App() {
   const [settingsForm, setSettingsForm] = useState<StoreSettings>({ ...state.settings });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
-  const [adminEmail, setAdminEmail] = useState(ADMIN_EMAIL);
+  const [adminEmail, setAdminEmail] = useState('');
   const [formError, setFormError] = useState('');
 
   // Customer order size selection
@@ -232,22 +232,27 @@ export default function App() {
     setActiveModal('detail');
   };
 
-  // Firestore is the sole source of truth for storefront products and settings.
   const persistState = async (newState: StoreState, successMessage: string) => {
     setIsBusy(true);
-    const stampedState: StoreState = { ...newState, updatedAt: Date.now() };
+    const now = Date.now();
+    const stampedState: StoreState = {
+      ...newState,
+      updatedAt: Math.max(newState.updatedAt || 0, now),
+    };
+
     try {
       const saved = await saveStoreStateToFirestore(stampedState);
-      if (!saved) throw new Error('Firestore did not confirm the write');
+      if (!saved) {
+        throw new Error('تعذر تأكيد حفظ البيانات على Firestore. لم يتم اعتماد التعديل.');
+      }
       setState(stampedState);
-      try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stampedState)); } catch {}
       setIsDirty(false);
       setConfirmExit(false);
       showToast(successMessage, 3500);
       return true;
     } catch (err) {
       console.error('Firestore save failed:', err);
-      showToast('فشل الحفظ السحابي؛ لم يتم تأكيد التعديل. راجع الاتصال وصلاحيات حساب المالك.', 5000);
+      showToast('فشل الحفظ على قاعدة البيانات. تحقق من الاتصال والصلاحيات ثم حاول مجددًا.', 5000);
       return false;
     } finally {
       setIsBusy(false);
@@ -262,16 +267,16 @@ export default function App() {
     const unsubStore = subscribeToStoreState((fsState) => {
       if (fsState && fsState.settings && Array.isArray(fsState.products)) {
         setIsOnline(true);
+        setIsStoreLoaded(true);
         setState((prevState) => {
           if (isStateNewer(fsState, prevState) || (fsState.updatedAt || 0) >= (prevState.updatedAt || 0)) {
-            try {
-              localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(fsState));
-            } catch {}
             return fsState;
           }
           return prevState;
         });
       }
+    }, () => {
+      setIsOnline(false);
     });
 
     // Initial fetch from Firestore only
@@ -280,17 +285,19 @@ export default function App() {
         const chosen = await getStoreStateFromFirestore();
 
         if (chosen && chosen.settings && Array.isArray(chosen.products)) {
+          setIsOnline(true);
+          setIsStoreLoaded(true);
           setState((prevState) => {
             if (isStateNewer(chosen, prevState) || (chosen.updatedAt || 0) >= (prevState.updatedAt || 0)) {
-              try {
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(chosen));
-              } catch {}
               return chosen;
             }
             return prevState;
           });
+        } else {
+          setIsOnline(false);
         }
       } catch (err) {
+        setIsOnline(false);
         console.warn('Initial load error:', err);
       }
     }
@@ -755,6 +762,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  if (!isStoreLoaded) {
+    return (
+      <div className="site" dir="rtl" lang="ar" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center' }}>
+        <div>
+          <h2>{isOnline ? 'جاري تحميل المتجر…' : 'تعذر الاتصال بقاعدة البيانات'}</h2>
+          <p>{isOnline ? 'يتم تحميل المنتجات وإعدادات المتجر من Firestore.' : 'لا يتم عرض بيانات محلية بديلة. تحقق من اتصال الإنترنت وإعدادات Firebase ثم أعد المحاولة.'}</p>
+          <button type="button" className="btn btn-brand" onClick={() => window.location.reload()}>إعادة المحاولة</button>
+        </div>
+      </div>
+    );
+  }
+
   const s = state.settings;
   const inStockCount = countInStock(state.products);
   const categories = getCategories(state.products);
@@ -785,12 +804,6 @@ export default function App() {
             )}
             <span className="brand-name">{s.name}</span>
           </a>
-
-          {/* Online Connection Pill */}
-          <div className="online-pill" title="المتجر متصل بالسحابة وقاعدة البيانات مباشرة">
-            <span className="online-dot"></span>
-            <span>متصل بالإنترنت</span>
-          </div>
 
           <nav className="nav" aria-label="الأقسام">
             <button type="button" onClick={() => scrollToSection('shop')}>
@@ -1125,8 +1138,6 @@ export default function App() {
           <span>
             {s.name}
             {s.area && ` · ${s.area}`}
-            {' · '}
-            <span style={{ color: '#10B981', fontWeight: 600 }}>🟢 مزامنة سحابية متصلة بالإنترنت</span>
           </span>
           {!isAdmin && (
             <button
@@ -1135,7 +1146,7 @@ export default function App() {
               onClick={() => {
                 setFormError('');
                 setPasswordInput('');
-                setAdminEmail(ADMIN_EMAIL);
+                setAdminEmail('');
                 setActiveModal('pw');
               }}
             >
@@ -1245,17 +1256,26 @@ export default function App() {
                 </button>
               </div>
               <p style={{ margin: '0 0 14px', fontSize: '13.5px', color: 'var(--muted)' }}>
-                سجّل الدخول بالبريد وكلمة المرور لحساب المالك المسجل في Firebase Authentication.
+                سجّل الدخول بالبريد وكلمة المرور لحساب المالك.
               </p>
               <div className="field">
                 <label htmlFor="admin-email">البريد الإلكتروني للمالك</label>
-                <input id="admin-email" type="email" dir="ltr" autoComplete="username" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
-                <label htmlFor="pw-input">كلمة مرور حساب Firebase</label>
+                <input
+                  id="admin-email"
+                  type="email"
+                  dir="ltr"
+                  autoComplete="username"
+                  placeholder="اكتب البريد الإلكتروني..."
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                />
+                <label htmlFor="pw-input" style={{ marginTop: '10px', display: 'block' }}>كلمة المرور</label>
                 <input
                   id="pw-input"
                   type="password"
                   dir="ltr"
                   autoComplete="current-password"
+                  placeholder="اكتب كلمة المرور..."
                   value={passwordInput}
                   onChange={(e) => setPasswordInput(e.target.value)}
                   onKeyDown={(e) => {

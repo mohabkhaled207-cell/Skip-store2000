@@ -49,13 +49,23 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const ADMIN_EMAIL = 'skipstore27@gmail.com';
 export function observeAuth(callback: (user: User | null) => void) {
-  return onAuthStateChanged(auth, callback);
+  return onAuthStateChanged(auth, (user) => {
+    if (user && user.email?.toLowerCase() !== ADMIN_EMAIL) {
+      void signOut(auth);
+      callback(null);
+      return;
+    }
+    callback(user);
+  });
 }
 export async function loginAdmin(email: string, password: string): Promise<User> {
+  if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
+    throw new Error('هذا الحساب غير مصرح له بإدارة المتجر.');
+  }
   const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-  if ((credential.user.email || '').toLowerCase() !== ADMIN_EMAIL) {
+  if (credential.user.email?.toLowerCase() !== ADMIN_EMAIL) {
     await signOut(auth);
-    throw new Error('هذا الحساب غير مصرح له بإدارة المتجر');
+    throw new Error('هذا الحساب غير مصرح له بإدارة المتجر.');
   }
   return credential.user;
 }
@@ -234,7 +244,7 @@ export async function getStoreStateFromFirestore(): Promise<StoreState | null> {
     }
   })();
 
-  return withTimeout(fetchPromise, 1500, null);
+  return fetchPromise;
 }
 
 // Delete a single product directly and atomically from Firestore with 1500ms timeout
@@ -264,10 +274,10 @@ export async function deleteProductFromFirestore(productId: string, newUpdatedAt
     }
   })();
 
-  return withTimeout(deletePromise, 1500, false);
+  return deletePromise;
 }
 
-// Save complete store state safely into individual documents with strict 1500ms timeout
+// Save complete store state safely into individual documents with strict safety timeout
 export async function saveStoreStateToFirestore(state: StoreState): Promise<boolean> {
   if (isFirestoreQuotaExceeded()) return false;
 
@@ -288,11 +298,13 @@ export async function saveStoreStateToFirestore(state: StoreState): Promise<bool
       const existingSnap = await getDocs(collection(db, 'products'));
       const currentProductIds = new Set(state.products.map((p) => p.id));
 
-      existingSnap.forEach((dSnap) => {
-        if (!currentProductIds.has(dSnap.id)) {
-          batch.delete(dSnap.ref);
-        }
-      });
+      if (existingSnap) {
+        existingSnap.forEach((dSnap) => {
+          if (!currentProductIds.has(dSnap.id)) {
+            batch.delete(dSnap.ref);
+          }
+        });
+      }
 
       // 3. Save each product as an individual document
       for (const p of state.products) {
@@ -308,9 +320,10 @@ export async function saveStoreStateToFirestore(state: StoreState): Promise<bool
       return true;
     } catch (error) {
       if (isQuotaExceededError(error)) {
+        markQuotaExceeded();
         return false;
       }
-      handleFirestoreError(error, OperationType.WRITE, 'store_config/settings');
+      console.warn('saveStoreStateToFirestore warning:', error);
       return false;
     }
   })();
@@ -355,9 +368,12 @@ export function subscribeToStoreState(
       },
       (error) => {
         if (isQuotaExceededError(error)) {
-          // quota marked
-        } else if (onError) {
-          onError(error);
+          markQuotaExceeded();
+        } else {
+          try {
+            handleFirestoreError(error, OperationType.GET, 'store_config/settings');
+          } catch {}
+          if (onError) onError(error);
         }
       }
     );
@@ -374,9 +390,12 @@ export function subscribeToStoreState(
       },
       (error) => {
         if (isQuotaExceededError(error)) {
-          // quota marked
-        } else if (onError) {
-          onError(error);
+          markQuotaExceeded();
+        } else {
+          try {
+            handleFirestoreError(error, OperationType.LIST, 'products');
+          } catch {}
+          if (onError) onError(error);
         }
       }
     );

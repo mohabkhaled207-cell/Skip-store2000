@@ -241,7 +241,7 @@ export default function App() {
     };
 
     try {
-      const saved = await saveStoreStateToFirestore(stampedState);
+      const saved = await saveStoreStateToFirestore(stampedState, newState.updatedAt || 0);
       if (!saved) {
         throw new Error('تعذر تأكيد حفظ البيانات على Firestore. لم يتم اعتماد التعديل.');
       }

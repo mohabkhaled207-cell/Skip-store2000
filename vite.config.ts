@@ -27,10 +27,9 @@ export default defineConfig(() => {
       ],
     },
     build: {
-      // Vite's default chunk warning threshold is 500 kB.
-      // Raise it to 1000 kB to avoid a non-fatal warning for this app's bundled dependencies.
-      // This changes the warning threshold; it does not reduce the generated bundle size.
-      chunkSizeWarningLimit: 1000,
+      // Current minified JS bundle is about 1.78 MB; keep the warning threshold above it.
+      // This suppresses the size warning but does not reduce the bundle itself.
+      chunkSizeWarningLimit: 2000,
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

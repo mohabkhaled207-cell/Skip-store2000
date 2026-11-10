@@ -141,7 +141,18 @@ const CART_STORAGE_KEY = 'skip_store_cart_v1';
 const LOCAL_STORAGE_KEY = 'skip_store_active_state_v1';
 
 export default function App() {
-  const [state, setState] = useState<StoreState>(defaultState as StoreState);
+  const [state, setState] = useState<StoreState>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.settings && Array.isArray(parsed.products)) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return defaultState as StoreState;
+  });
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -278,6 +289,7 @@ export default function App() {
         setIsStoreLoaded(true);
         setState((prevState) => {
           if (isStateNewer(fsState, prevState) || (fsState.updatedAt || 0) >= (prevState.updatedAt || 0)) {
+            try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(fsState)); } catch {}
             return fsState;
           }
           return prevState;
@@ -297,6 +309,7 @@ export default function App() {
           setIsStoreLoaded(true);
           setState((prevState) => {
             if (isStateNewer(chosen, prevState) || (chosen.updatedAt || 0) >= (prevState.updatedAt || 0)) {
+              try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(chosen)); } catch {}
               return chosen;
             }
             return prevState;
@@ -381,7 +394,7 @@ export default function App() {
 
   const totalCartPrice = cartItems.reduce((acc, item) => acc + (item.price || 0) * (item.quantity || 1), 0);
 
-  const handleSubmitCartOrder = async (isWa = false) => {
+  const handleSubmitCartOrder = (isWa = false) => {
     const name = checkoutName.trim();
     const phone = checkoutPhone.trim();
 
@@ -394,7 +407,6 @@ export default function App() {
       return;
     }
 
-    setIsBusy(true);
     setFormError('');
 
     const newOrder: CustomerOrder = {
@@ -409,10 +421,12 @@ export default function App() {
       createdAt: Date.now(),
     };
 
-    // Save order to Firestore and Server
-    await saveOrderToFirestore(newOrder);
+    // Save order to Firestore & Server asynchronously in the background without blocking the UI or popup launch
+    saveOrderToFirestore(newOrder).catch((err) => {
+      console.warn('Background order save note:', err);
+    });
 
-    // Record activity
+    // Record activity asynchronously
     const activityItem: ActivityItem = {
       id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       type: 'order_submit',
@@ -423,7 +437,8 @@ export default function App() {
     };
     recordActivity(activityItem).catch(() => {});
 
-    // Prepare WhatsApp message if requested
+    // Prepare WhatsApp message URL before closing state if requested
+    let waUrl: string | null = null;
     if (isWa) {
       const itemsList = cartItems
         .map((it, idx) => {
@@ -449,9 +464,10 @@ export default function App() {
         `✨ هل متاح التوصيل والاستلام؟`,
       ].filter(Boolean).join('\n');
 
-      window.open(buildWaLink(state.settings.phone, waText), '_blank');
+      waUrl = buildWaLink(state.settings.phone, waText);
     }
 
+    // Reset UI, clear cart and close modal instantly (< 10ms)
     setCartItems([]);
     setIsBusy(false);
     setActiveModal(null);
@@ -461,6 +477,18 @@ export default function App() {
     setCheckoutNotes('');
 
     showToast('🎉 تم إرسال وتأكيد طلبك بنجاح! وسنتواصل معك فوراً.');
+
+    // Launch WhatsApp immediately or fallback to location redirect if popup blocked
+    if (waUrl) {
+      try {
+        const win = window.open(waUrl, '_blank');
+        if (!win || win.closed || typeof win.closed === 'undefined') {
+          window.location.href = waUrl;
+        }
+      } catch {
+        window.location.href = waUrl;
+      }
+    }
   };
 
   const handleUpdateOrderStatus = async (orderId: string, status: CustomerOrder['status']) => {
@@ -773,18 +801,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  if (!isStoreLoaded) {
-    return (
-      <div className="site" dir="rtl" lang="ar" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center' }}>
-        <div>
-          <h2>{isOnline ? 'جاري تحميل المتجر…' : 'تعذر الاتصال بقاعدة البيانات'}</h2>
-          <p>{isOnline ? 'يتم تحميل المنتجات وإعدادات المتجر من Firestore.' : 'لا يتم عرض بيانات محلية بديلة. تحقق من اتصال الإنترنت وإعدادات Firebase ثم أعد المحاولة.'}</p>
-          <button type="button" className="btn btn-brand" onClick={() => window.location.reload()}>إعادة المحاولة</button>
-        </div>
-      </div>
-    );
-  }
 
   const s = state.settings;
   const inStockCount = countInStock(state.products);

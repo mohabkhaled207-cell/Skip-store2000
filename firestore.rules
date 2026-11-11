@@ -3,37 +3,43 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Only the authenticated store-owner account may change store data.
     function isStoreOwner() {
-      return request.auth != null || true;
+      return request.auth != null
+        && request.auth.token.email == 'skipstore27@gmail.com';
     }
 
-    // إعدادات المتجر
+    // Store configuration and products are public to read, owner-only to write.
     match /store_config/{configId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isStoreOwner();
     }
 
-    // المنتجات
     match /products/{productId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isStoreOwner();
     }
 
-    // الطلبات
+    // Customers may submit orders; only the owner may inspect or manage them.
     match /orders/{orderId} {
-      allow create, read, update, delete: if true;
+      allow create: if true;
+      allow read, update, delete: if isStoreOwner();
     }
 
-    // سجلات النشاط
+    // Customers may create activity events; only the owner may inspect or clear them.
     match /activity/{activityId} {
-      allow create, read, delete: if true;
+      allow create: if true;
+      allow read, delete: if isStoreOwner();
       allow update: if false;
     }
 
-    // اختبار الاتصال
+    // Public connection check; only the owner may write test documents.
     match /test/{testId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isStoreOwner();
     }
 
-    // منع أي وصول إلى مجموعات غير محددة أعلاه
+    // Deny every collection not explicitly listed above.
     match /{document=**} {
       allow read, write: if false;
     }

@@ -138,21 +138,14 @@ const Icons = {
 };
 
 const CART_STORAGE_KEY = 'skip_store_cart_v1';
-const LOCAL_STORAGE_KEY = 'skip_store_active_state_v1';
 
 export default function App() {
-  const [state, setState] = useState<StoreState>(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.settings && Array.isArray(parsed.products)) {
-          return parsed;
-        }
-      }
-    } catch {}
-    return defaultState as StoreState;
-  });
+  // Firestore is the only source of truth for store products and settings.
+  // The default state is only a temporary shell until the Firestore snapshot arrives.
+  const [state, setState] = useState<StoreState>(() => ({
+    ...(defaultState as StoreState),
+    updatedAt: 0,
+  }));
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -246,33 +239,40 @@ export default function App() {
 
   const persistState = async (newState: StoreState, successMessage: string) => {
     setIsBusy(true);
-    const now = Date.now();
+    const previousUpdatedAt = state.updatedAt || 0;
     const stampedState: StoreState = {
       ...newState,
-      updatedAt: Math.max(newState.updatedAt || 0, now),
+      updatedAt: Date.now(),
     };
 
-    // 1. Optimistic UI and local storage update immediately
-    setState(stampedState);
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stampedState));
-    } catch {}
-    setIsDirty(false);
-    setConfirmExit(false);
-
-    try {
-      // 2. Cloud Firestore sync
-      const saved = await saveStoreStateToFirestore(stampedState);
-      if (saved) {
-        showToast(successMessage, 3500);
-      } else {
-        showToast('تم حفظ التعديلات أونلاين بنجاح!', 3500);
+      // Pass the exact revision currently loaded from Firestore.
+      const saved = await saveStoreStateToFirestore(stampedState, previousUpdatedAt);
+      if (!saved) {
+        throw new Error('لم يؤكد Firestore حفظ البيانات. لم يتم اعتماد التعديل.');
       }
-      return true;
-    } catch (err) {
-      console.warn('Firestore sync note:', err);
+
+      // Update the visible state only after Firestore confirms the write.
+      setState(stampedState);
+      setIsOnline(true);
+      setIsStoreLoaded(true);
+      setIsDirty(false);
+      setConfirmExit(false);
       showToast(successMessage, 3500);
       return true;
+    } catch (err) {
+      console.error('Firestore save failed:', err);
+      const latest = await getStoreStateFromFirestore().catch(() => null);
+      if (latest && latest.settings && Array.isArray(latest.products)) {
+        setState(latest);
+        setIsOnline(true);
+        setIsStoreLoaded(true);
+      }
+      const message = err instanceof Error && err.message === 'STORE_STATE_CONFLICT'
+        ? 'يوجد تعديل أحدث في المتجر. تم تحديث البيانات؛ راجعها ثم أعد المحاولة.'
+        : 'فشل الحفظ على Firestore. لم يتم اعتماد التعديل؛ تحقق من الاتصال والصلاحيات ثم حاول مجددًا.';
+      showToast(message, 5000);
+      return false;
     } finally {
       setIsBusy(false);
     }
@@ -289,7 +289,6 @@ export default function App() {
         setIsStoreLoaded(true);
         setState((prevState) => {
           if (isStateNewer(fsState, prevState) || (fsState.updatedAt || 0) >= (prevState.updatedAt || 0)) {
-            try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(fsState)); } catch {}
             return fsState;
           }
           return prevState;
@@ -309,7 +308,6 @@ export default function App() {
           setIsStoreLoaded(true);
           setState((prevState) => {
             if (isStateNewer(chosen, prevState) || (chosen.updatedAt || 0) >= (prevState.updatedAt || 0)) {
-              try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(chosen)); } catch {}
               return chosen;
             }
             return prevState;
